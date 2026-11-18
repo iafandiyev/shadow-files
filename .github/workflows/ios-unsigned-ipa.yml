@@ -104,34 +104,84 @@ jobs:
 
             echo "=== ARCHITECTURE ==="
             uname -m
+
+            echo "=== PROJECT ==="
+            pwd
+            ls -la
           } 2>&1 | tee build/logs/environment.log
 
-      - name: Test Debug build settings
+      - name: Diagnose Xcode target settings
         shell: bash
         run: |
           set +e
 
-          echo "Testing Debug configuration..."
+          mkdir -p build/logs build/crash-reports
+
+          echo "=========================================="
+          echo "TEST 1: Direct target settings"
+          echo "=========================================="
 
           xcodebuild \
             -project SHADOWFILES.xcodeproj \
-            -scheme SHADOWFILES \
+            -target SHADOWFILES \
             -configuration Debug \
             -sdk iphoneos \
             -showBuildSettings \
-            > build/logs/debug-settings.log 2>&1
+            > build/logs/target-settings.log 2>&1
 
-          STATUS=$?
+          TARGET_STATUS=$?
 
-          echo "DEBUG SETTINGS EXIT CODE: $STATUS"
+          echo "TARGET EXIT CODE: $TARGET_STATUS"
 
-          if [ "$STATUS" -ne 0 ]; then
-            echo "Debug settings test failed"
-            cat build/logs/debug-settings.log
-            exit "$STATUS"
-          fi
+          echo "=========================================="
+          echo "TEST 2: Project parsing"
+          echo "=========================================="
 
-          echo "DEBUG SETTINGS SUCCESS"
+          plutil -lint SHADOWFILES.xcodeproj/project.pbxproj \
+            > build/logs/plutil.log 2>&1
+
+          cat build/logs/plutil.log
+
+          echo "=========================================="
+          echo "TEST 3: Xcode diagnostic logs"
+          echo "=========================================="
+
+          log show \
+            --last 10m \
+            --style compact \
+            --predicate 'process == "xcodebuild"' \
+            > build/logs/xcode-system.log 2>&1 || true
+
+          echo "=========================================="
+          echo "TEST 4: Crash reports"
+          echo "=========================================="
+
+          for DIR in \
+            "$HOME/Library/Logs/DiagnosticReports" \
+            "/Library/Logs/DiagnosticReports" \
+            "/private/var/log"
+          do
+            if [ -d "$DIR" ]; then
+              find "$DIR" \
+                -type f \
+                -mmin -120 \
+                \( \
+                  -iname '*xcodebuild*' \
+                  -o -iname '*xcbuild*' \
+                \) \
+                -exec cp {} build/crash-reports/ \; \
+                2>/dev/null || true
+            fi
+          done
+
+          echo "=========================================="
+          echo "DIAGNOSTIC RESULT"
+          echo "=========================================="
+
+          echo "Target test result: $TARGET_STATUS"
+          ls -lah build/crash-reports || true
+
+          exit "$TARGET_STATUS"
 
       - name: Build unsigned iOS app
         shell: bash
@@ -165,8 +215,6 @@ jobs:
 
           echo "BUILD EXIT CODE: $BUILD_STATUS"
 
-          echo "Collecting crash reports..."
-
           for DIR in \
             "$HOME/Library/Logs/DiagnosticReports" \
             "/Library/Logs/DiagnosticReports"
@@ -185,8 +233,6 @@ jobs:
                 2>/dev/null || true
             fi
           done
-
-          ls -lah build/crash-reports || true
 
           if [ "$BUILD_STATUS" -ne 0 ]; then
             echo "iOS build failed"
@@ -210,10 +256,13 @@ jobs:
 
           test -f "$APP_PATH/Info.plist"
 
-          echo "App bundle:"
+          echo "Bundle identifier:"
+
           /usr/libexec/PlistBuddy \
             -c "Print :CFBundleIdentifier" \
             "$APP_PATH/Info.plist"
+
+          echo "Bundle version:"
 
           /usr/libexec/PlistBuddy \
             -c "Print :CFBundleVersion" \
