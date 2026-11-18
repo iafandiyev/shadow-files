@@ -1,0 +1,20 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test-backend:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: Backend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Swift
+        run: swift --version
+      - name: Resolve dependencies and run tests
+        run: swift test
