@@ -19,23 +19,29 @@ jobs:
   build-ios:
     name: Build unsigned iOS IPA
     runs-on: macos-15-intel
-    timeout-minutes: 40
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: List installed Xcode versions
+      - name: Select Xcode 16.3
         shell: bash
         run: |
-          echo "Installed Xcode versions:"
+          set -euo pipefail
+
+          echo "Available Xcode installations:"
           ls -d /Applications/Xcode*.app || true
 
-          echo ""
+          if [ ! -d "/Applications/Xcode_16.3.app" ]; then
+            echo "Xcode 16.3 not found."
+            exit 1
+          fi
+
+          sudo xcode-select -s /Applications/Xcode_16.3.app/Contents/Developer
+
           echo "Selected Xcode:"
           xcode-select -p
-
-          echo ""
           xcodebuild -version
 
       - name: Check project and scheme
@@ -44,21 +50,23 @@ jobs:
           set -euo pipefail
 
           test -d SHADOWFILES.xcodeproj
+          test -f SHADOWFILES/Info.plist
 
-          echo "Available project schemes:"
           xcodebuild -list -project SHADOWFILES.xcodeproj
 
       - name: Prepare build folders
         shell: bash
         run: |
           mkdir -p build/logs
+          mkdir -p build/crash-reports
           mkdir -p dist/Payload
 
-      - name: Build for generic iOS device
+      - name: Build unsigned iOS app
         shell: bash
         run: |
-          set -o pipefail
+          set -uo pipefail
 
+          set +e
           xcodebuild \
             -project SHADOWFILES.xcodeproj \
             -scheme SHADOWFILES \
@@ -72,6 +80,27 @@ jobs:
             CODE_SIGN_IDENTITY='' \
             build 2>&1 | tee build/logs/ios-build.log
 
+          BUILD_STATUS=${PIPESTATUS[0]}
+          set -e
+
+          if [ "$BUILD_STATUS" -ne 0 ]; then
+            echo "Xcode build failed with exit code: $BUILD_STATUS"
+
+            echo "Collecting crash reports..."
+
+            find "$HOME/Library/Logs/DiagnosticReports" \
+              -maxdepth 1 \
+              \( -name 'xcodebuild*' -o -name 'Xcode*' \) \
+              -type f \
+              -mmin -30 \
+              -exec cp {} build/crash-reports/ \; 2>/dev/null || true
+
+            echo "Recent crash reports:"
+            ls -lah build/crash-reports || true
+
+            exit "$BUILD_STATUS"
+          fi
+
       - name: Verify generated app
         shell: bash
         run: |
@@ -84,8 +113,10 @@ jobs:
             exit 1
           fi
 
-          echo "App successfully generated:"
+          echo "App generated successfully:"
           ls -lah "$APP_PATH"
+
+          test -f "$APP_PATH/Info.plist"
 
       - name: Package unsigned IPA
         shell: bash
@@ -103,10 +134,10 @@ jobs:
 
           test -s SHADOW-FILES-unsigned.ipa
 
-          echo "IPA successfully created:"
+          echo "IPA created:"
           ls -lh SHADOW-FILES-unsigned.ipa
 
-          /usr/bin/unzip -l SHADOW-FILES-unsigned.ipa | head -40
+          /usr/bin/unzip -t SHADOW-FILES-unsigned.ipa
 
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
@@ -116,11 +147,13 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload build logs
+      - name: Upload build diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: SHADOW-FILES-build-logs
-          path: build/logs/
+          name: SHADOW-FILES-build-diagnostics
+          path: |
+            build/logs/
+            build/crash-reports/
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 14
