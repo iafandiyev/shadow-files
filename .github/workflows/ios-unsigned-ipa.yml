@@ -18,7 +18,7 @@ concurrency:
 jobs:
   build-ios:
     name: Build unsigned iOS IPA
-    runs-on: macos-15-intel
+    runs-on: macos-15
     timeout-minutes: 60
 
     steps:
@@ -42,6 +42,7 @@ jobs:
 
           xcodebuild -version
           xcode-select -p
+          uname -m
 
       - name: Verify project
         shell: bash
@@ -71,6 +72,8 @@ jobs:
       - name: Collect environment
         shell: bash
         run: |
+          set -euo pipefail
+
           {
             sw_vers
             xcodebuild -version
@@ -79,12 +82,12 @@ jobs:
             uname -m
           } 2>&1 | tee build/logs/environment.log
 
-      - name: Build iOS app directly
+      - name: Build iOS app
         shell: bash
         run: |
           set -uo pipefail
 
-          echo "Starting direct iOS build..."
+          echo "Starting iOS build..."
 
           set +e
 
@@ -100,8 +103,6 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            SWIFT_VERSION=5.0 \
-            SWIFT_OPTIMIZATION_LEVEL=-Onone \
             build 2>&1 | tee build/logs/ios-build.log
 
           BUILD_STATUS=${PIPESTATUS[0]}
