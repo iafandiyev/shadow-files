@@ -12,9 +12,7 @@ final class GameSceneController {
     private var remotePlayers: [String: Entity] = [:]
     private var hasBuiltWorld = false
 
-    var playerPosition: SIMD3<Float> {
-        player.position
-    }
+    var playerPosition: SIMD3<Float> { player.position }
 
     func attach(to view: ARView) {
         arView = view
@@ -66,10 +64,12 @@ final class GameSceneController {
 
         for (index, building) in buildings.enumerated() {
             addBox(to: anchor, size: building.1, position: building.0, material: building.2)
-            addFacadeWindows(to: anchor,
-                             center: building.0,
-                             dimensions: building.1,
-                             windowMaterial: index.isMultiple(of: 2) ? warmWindow : darkWindow)
+            addFacadeWindows(
+                to: anchor,
+                center: building.0,
+                dimensions: building.1,
+                windowMaterial: index.isMultiple(of: 2) ? warmWindow : darkWindow
+            )
         }
 
         // Street lamps and small roadside details.
@@ -96,7 +96,10 @@ final class GameSceneController {
 
         let coat = material(UIColor(red: 0.10, green: 0.12, blue: 0.15, alpha: 1))
         let skin = material(UIColor(red: 0.72, green: 0.54, blue: 0.40, alpha: 1))
-        let torso = ModelEntity(mesh: .generateCylinder(height: 0.85, radius: 0.28), materials: [coat])
+
+        // Use generateBox instead of generateCylinder: generateCylinder is iOS 18+,
+        // while this project supports iOS 17 and newer.
+        let torso = ModelEntity(mesh: .generateBox(size: [0.48, 0.85, 0.34]), materials: [coat])
         torso.position = [0, 0.88, 0]
         let head = ModelEntity(mesh: .generateSphere(radius: 0.19), materials: [skin])
         head.position = [0, 1.48, 0]
@@ -109,10 +112,12 @@ final class GameSceneController {
         anchor.addChild(player)
     }
 
-    private func addFacadeWindows(to anchor: Entity,
-                                  center: SIMD3<Float>,
-                                  dimensions: SIMD3<Float>,
-                                  windowMaterial: SimpleMaterial) {
+    private func addFacadeWindows(
+        to anchor: Entity,
+        center: SIMD3<Float>,
+        dimensions: SIMD3<Float>,
+        windowMaterial: SimpleMaterial
+    ) {
         let floors = max(1, Int(dimensions.y / 3.0))
         let columns = max(1, Int(dimensions.x / 3.0))
         for floor in 0..<floors {
@@ -125,10 +130,12 @@ final class GameSceneController {
         }
     }
 
-    private func addBox(to parent: Entity,
-                        size: SIMD3<Float>,
-                        position: SIMD3<Float>,
-                        material: SimpleMaterial) {
+    private func addBox(
+        to parent: Entity,
+        size: SIMD3<Float>,
+        position: SIMD3<Float>,
+        material: SimpleMaterial
+    ) {
         let entity = ModelEntity(mesh: .generateBox(size: size), materials: [material])
         entity.position = position
         parent.addChild(entity)
@@ -152,7 +159,7 @@ final class GameSceneController {
     }
 
     func updateRemotePlayer(id: String, x: Float, z: Float) {
-        guard let anchor = worldAnchor, id != "" else { return }
+        guard let anchor = worldAnchor, !id.isEmpty else { return }
         let entity: Entity
         if let existing = remotePlayers[id] {
             entity = existing
@@ -173,12 +180,15 @@ final class GameSceneController {
         let avatar = Entity()
         let jacket = material(UIColor(red: 0.16, green: 0.25, blue: 0.34, alpha: 1))
         let skin = material(UIColor(red: 0.68, green: 0.49, blue: 0.37, alpha: 1))
-        let torso = ModelEntity(mesh: .generateCylinder(height: 0.85, radius: 0.28), materials: [jacket])
+
+        // Keep remote avatars compatible with the iOS 17 deployment target.
+        let torso = ModelEntity(mesh: .generateBox(size: [0.48, 0.85, 0.34]), materials: [jacket])
         torso.position = [0, 0.88, 0]
         let head = ModelEntity(mesh: .generateSphere(radius: 0.19), materials: [skin])
         head.position = [0, 1.48, 0]
         let legs = ModelEntity(mesh: .generateBox(size: [0.43, 0.55, 0.25]), materials: [jacket])
         legs.position = [0, 0.27, 0]
+
         avatar.addChild(torso)
         avatar.addChild(head)
         avatar.addChild(legs)
