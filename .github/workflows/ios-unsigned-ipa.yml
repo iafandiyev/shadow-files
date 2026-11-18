@@ -25,7 +25,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Select Xcode 16.4
+      - name: Select Xcode
         shell: bash
         run: |
           set -euo pipefail
@@ -34,7 +34,7 @@ jobs:
 
           if [ ! -d "$XCODE_PATH" ]; then
             echo "Xcode 16.4 not found"
-            ls -d /Applications/Xcode*.app || true
+            ls -la /Applications/Xcode*.app || true
             exit 1
           fi
 
@@ -43,22 +43,7 @@ jobs:
           xcodebuild -version
           xcode-select -p
 
-      - name: Verify iOS SDK
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          xcodebuild -showsdks
-
-          SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
-          SDK_VERSION=$(xcrun --sdk iphoneos --show-sdk-version)
-
-          echo "SDK PATH: $SDK_PATH"
-          echo "SDK VERSION: $SDK_VERSION"
-
-          test -d "$SDK_PATH"
-
-      - name: Check project files
+      - name: Verify project
         shell: bash
         run: |
           set -euo pipefail
@@ -66,16 +51,15 @@ jobs:
           test -d SHADOWFILES.xcodeproj
           test -f SHADOWFILES/Info.plist
 
-          echo "Checking project file..."
           plutil -lint SHADOWFILES.xcodeproj/project.pbxproj
 
-          echo "Source files:"
-          find SHADOWFILES -type f
-
-          echo "Available schemes:"
+          echo "Checking schemes..."
           xcodebuild -list -project SHADOWFILES.xcodeproj
 
-      - name: Prepare folders
+          echo "Checking source files..."
+          find SHADOWFILES -name "*.swift" -type f
+
+      - name: Prepare build folders
         shell: bash
         run: |
           set -euo pipefail
@@ -84,111 +68,23 @@ jobs:
           mkdir -p build/crash-reports
           mkdir -p dist/Payload
 
-      - name: Collect environment information
+      - name: Collect environment
         shell: bash
         run: |
-          set -euo pipefail
-
           {
-            echo "=== SYSTEM ==="
             sw_vers
-
-            echo "=== XCODE ==="
             xcodebuild -version
-
-            echo "=== SWIFT ==="
             swift --version
-
-            echo "=== SDK ==="
             xcrun --sdk iphoneos --show-sdk-version
-
-            echo "=== ARCHITECTURE ==="
             uname -m
-
-            echo "=== PROJECT ==="
-            pwd
-            ls -la
           } 2>&1 | tee build/logs/environment.log
 
-      - name: Diagnose Xcode target settings
-        shell: bash
-        run: |
-          set +e
-
-          mkdir -p build/logs build/crash-reports
-
-          echo "=========================================="
-          echo "TEST 1: Direct target settings"
-          echo "=========================================="
-
-          xcodebuild \
-            -project SHADOWFILES.xcodeproj \
-            -target SHADOWFILES \
-            -configuration Debug \
-            -sdk iphoneos \
-            -showBuildSettings \
-            > build/logs/target-settings.log 2>&1
-
-          TARGET_STATUS=$?
-
-          echo "TARGET EXIT CODE: $TARGET_STATUS"
-
-          echo "=========================================="
-          echo "TEST 2: Project parsing"
-          echo "=========================================="
-
-          plutil -lint SHADOWFILES.xcodeproj/project.pbxproj \
-            > build/logs/plutil.log 2>&1
-
-          cat build/logs/plutil.log
-
-          echo "=========================================="
-          echo "TEST 3: Xcode diagnostic logs"
-          echo "=========================================="
-
-          log show \
-            --last 10m \
-            --style compact \
-            --predicate 'process == "xcodebuild"' \
-            > build/logs/xcode-system.log 2>&1 || true
-
-          echo "=========================================="
-          echo "TEST 4: Crash reports"
-          echo "=========================================="
-
-          for DIR in \
-            "$HOME/Library/Logs/DiagnosticReports" \
-            "/Library/Logs/DiagnosticReports" \
-            "/private/var/log"
-          do
-            if [ -d "$DIR" ]; then
-              find "$DIR" \
-                -type f \
-                -mmin -120 \
-                \( \
-                  -iname '*xcodebuild*' \
-                  -o -iname '*xcbuild*' \
-                \) \
-                -exec cp {} build/crash-reports/ \; \
-                2>/dev/null || true
-            fi
-          done
-
-          echo "=========================================="
-          echo "DIAGNOSTIC RESULT"
-          echo "=========================================="
-
-          echo "Target test result: $TARGET_STATUS"
-          ls -lah build/crash-reports || true
-
-          exit "$TARGET_STATUS"
-
-      - name: Build unsigned iOS app
+      - name: Build iOS app directly
         shell: bash
         run: |
           set -uo pipefail
 
-          echo "Starting iOS build..."
+          echo "Starting direct iOS build..."
 
           set +e
 
@@ -198,15 +94,14 @@ jobs:
             -configuration Debug \
             -destination 'generic/platform=iOS' \
             -sdk iphoneos \
-            -derivedDataPath build/DerivedData \
+            -derivedDataPath "$PWD/build/DerivedData" \
             -jobs 1 \
-            -verbose \
-            SWIFT_COMPILATION_MODE=singlefile \
-            SWIFT_OPTIMIZATION_LEVEL=-Onone \
-            SWIFT_ENABLE_BATCH_MODE=NO \
+            -disableAutomaticPackageResolution \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY='' \
+            CODE_SIGN_IDENTITY="" \
+            SWIFT_VERSION=5.0 \
+            SWIFT_OPTIMIZATION_LEVEL=-Onone \
             build 2>&1 | tee build/logs/ios-build.log
 
           BUILD_STATUS=${PIPESTATUS[0]}
@@ -215,33 +110,39 @@ jobs:
 
           echo "BUILD EXIT CODE: $BUILD_STATUS"
 
-          for DIR in \
-            "$HOME/Library/Logs/DiagnosticReports" \
-            "/Library/Logs/DiagnosticReports"
-          do
-            if [ -d "$DIR" ]; then
-              find "$DIR" \
-                -type f \
-                -mmin -120 \
-                \( \
-                  -iname '*xcodebuild*' \
-                  -o -iname '*swift*' \
-                  -o -iname '*xcbuild*' \
-                  -o -iname '*SourceKit*' \
-                \) \
-                -exec cp {} build/crash-reports/ \; \
-                2>/dev/null || true
-            fi
-          done
-
           if [ "$BUILD_STATUS" -ne 0 ]; then
-            echo "iOS build failed"
+            echo "Build failed. Collecting diagnostics..."
+
+            log show \
+              --last 15m \
+              --style compact \
+              --predicate 'process == "xcodebuild"' \
+              > build/logs/xcode-system.log 2>&1 || true
+
+            for DIR in \
+              "$HOME/Library/Logs/DiagnosticReports" \
+              "/Library/Logs/DiagnosticReports"
+            do
+              if [ -d "$DIR" ]; then
+                find "$DIR" \
+                  -type f \
+                  -mmin -120 \
+                  \( \
+                    -iname '*xcodebuild*' \
+                    -o -iname '*xcbuild*' \
+                    -o -iname '*swift*' \
+                  \) \
+                  -exec cp {} build/crash-reports/ \; \
+                  2>/dev/null || true
+              fi
+            done
+
             exit "$BUILD_STATUS"
           fi
 
-          echo "iOS build succeeded"
+          echo "BUILD SUCCESS"
 
-      - name: Verify generated app
+      - name: Verify app
         shell: bash
         run: |
           set -euo pipefail
@@ -249,7 +150,7 @@ jobs:
           APP_PATH="build/DerivedData/Build/Products/Debug-iphoneos/SHADOWFILES.app"
 
           if [ ! -d "$APP_PATH" ]; then
-            echo "SHADOWFILES.app not found"
+            echo "App not found!"
             find build/DerivedData -name "*.app" || true
             exit 1
           fi
@@ -257,16 +158,11 @@ jobs:
           test -f "$APP_PATH/Info.plist"
 
           echo "Bundle identifier:"
-
           /usr/libexec/PlistBuddy \
             -c "Print :CFBundleIdentifier" \
             "$APP_PATH/Info.plist"
 
-          echo "Bundle version:"
-
-          /usr/libexec/PlistBuddy \
-            -c "Print :CFBundleVersion" \
-            "$APP_PATH/Info.plist"
+          echo "App successfully generated."
 
       - name: Package unsigned IPA
         shell: bash
