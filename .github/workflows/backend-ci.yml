@@ -1,20 +1,27 @@
-name: Backend CI
+name: SHADOW FILES Backend CI
 
 on:
   push:
     branches: [main, master]
+    paths:
+      - 'Backend/**'
+      - '.github/workflows/backend-ci.yml'
   pull_request:
+    paths:
+      - 'Backend/**'
+      - '.github/workflows/backend-ci.yml'
   workflow_dispatch:
 
 jobs:
   test-backend:
     runs-on: macos-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: Backend
     steps:
       - uses: actions/checkout@v4
-      - name: Select Swift
+      - name: Check Swift version
         run: swift --version
-      - name: Resolve dependencies and run tests
+      - name: Resolve and test server
         run: swift test

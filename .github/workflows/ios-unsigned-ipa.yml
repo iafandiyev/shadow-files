@@ -1,4 +1,3 @@
-
 name: Build SHADOW FILES iOS IPA
 
 on:
@@ -9,58 +8,54 @@ on:
 permissions:
   contents: read
 
-env:
-  PROJECT: SHADOWFILES.xcodeproj
-  SCHEME: SHADOWFILES
+concurrency:
+  group: shadow-files-ios-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-ios:
+    name: Build unsigned iOS IPA
     runs-on: macos-latest
-
+    timeout-minutes: 30
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode
+      - name: Show Xcode version and project scheme
         run: |
           xcodebuild -version
-          xcodebuild -list -project "$PROJECT"
+          xcodebuild -list -project SHADOWFILES.xcodeproj
 
-      - name: Build unsigned iOS app
+      - name: Build for generic iOS device
+        shell: bash
         run: |
           set -euo pipefail
-
-          mkdir -p build
-
+          mkdir -p build/logs
           xcodebuild \
-            -project "$PROJECT" \
-            -scheme "$SCHEME" \
+            -project SHADOWFILES.xcodeproj \
+            -scheme SHADOWFILES \
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -sdk iphoneos \
             -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            build | tee build/build.log
+            CODE_SIGN_IDENTITY='' \
+            build 2>&1 | tee build/logs/ios-build.log
 
       - name: Package unsigned IPA
+        shell: bash
         run: |
           set -euo pipefail
-
           APP_PATH="build/DerivedData/Build/Products/Release-iphoneos/SHADOWFILES.app"
-
           test -d "$APP_PATH"
-
           mkdir -p dist/Payload
-          cp -R "$APP_PATH" dist/Payload/
+          cp -R "$APP_PATH" dist/Payload/SHADOWFILES.app
+          (cd dist && /usr/bin/zip -qry SHADOW-FILES-unsigned.ipa Payload)
+          test -s dist/SHADOW-FILES-unsigned.ipa
+          /usr/bin/unzip -l dist/SHADOW-FILES-unsigned.ipa | head -40
 
-          cd dist
-          zip -qry SHADOW-FILES-unsigned.ipa Payload
-
-          test -s SHADOW-FILES-unsigned.ipa
-
-      - name: Upload IPA artifact
+      - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
           name: SHADOW-FILES-unsigned-IPA
@@ -73,6 +68,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: SHADOW-FILES-build-log
-          path: build/build.log
+          path: build/logs/ios-build.log
           if-no-files-found: ignore
           retention-days: 7

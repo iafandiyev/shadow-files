@@ -1,96 +1,66 @@
-# SHADOW FILES — iOS starter project
+# SHADOW FILES v1.0 — iOS Detective Game
 
-A native SwiftUI + RealityKit iOS prototype with a procedural compact city, third-person follow camera, touch movement, a simple evidence collection loop, local case-file persistence, a WebSocket multiplayer client, and a Vapor room server.
+A native SwiftUI + RealityKit iOS detective game foundation with a compact procedural 3D city, third-person movement/camera, three playable evidence cases, interrogation decisions, local save data, and room-code WebSocket multiplayer (2–8 players) backed by a Swift/Vapor server.
 
-## Important scope note
+## What v1.0 includes
 
-This repository is a playable technical starter, not a finished AAA game. The city and detective avatar are generated from simple RealityKit meshes. There are no licensed AAA character/vehicle assets, facial animation system, full story campaign, weapon system, production identity/authentication, matchmaking service, or public hosting configured yet. The multiplayer server currently provides room creation/joining and message relay for connected room members; it keeps room state in memory and is not production hardened. The app's evidence notebook is locally persisted as JSON.
+- Native iOS app, Swift 5 language mode, iOS 17 minimum
+- RealityKit non-AR 3D city scene built from iOS 17-compatible meshes
+- Third-person follow camera, joystick movement, camera drag, remote detective avatars
+- Three missions: The Empty Apartment, Blood on the Docks, The Last Witness
+- Evidence markers placed in the world; clues are collected by approaching the correct marker
+- Case notebook, interrogation choices, case completion, mission unlocks
+- JSON persistence in Application Support
+- WebSocket room creation/joining, 8-player room cap, player position relay, chat relay
+- Vapor backend with `/health` and `/ws`
+- GitHub Actions workflows for unsigned IPA packaging and backend tests
+- Windows upload script for the repository `iafandiyev/shadow-files`
 
-## Requirements
+## Important limits
 
-- Xcode 16 or later recommended
-- iOS 17 or later
-- Swift 5 language mode
-- macOS with Xcode for local iOS builds
-- Swift Package Manager for the Vapor backend
+This is a complete playable v1.0 indie prototype, not a commercial AAA production. The city and detective avatars are original procedural geometry; high-detail human/vehicle models, motion-captured animation, voice chat, matchmaking accounts, persistent public hosting, and a large authored campaign are not included. The multiplayer backend must be deployed separately to a reachable host. It is not hosted by GitHub Actions. The room server is a prototype relay and should be hardened with authentication, TLS, abuse controls, and persistent storage before public release.
 
-## iOS build
+An unsigned IPA can be built for free with GitHub Actions. It is not installable until it is signed through Sideloadly/AltStore or another signing method. A free Apple ID signing profile usually needs periodic renewal.
 
-Open `SHADOWFILES.xcodeproj` in Xcode, select the `SHADOWFILES` scheme, choose an iPhone simulator or device, and build.
+## Build iOS IPA with GitHub Actions
 
-For a local unsigned device build:
+1. Push this project to the repository's `main` branch.
+2. Open **Actions** in GitHub.
+3. Select **Build SHADOW FILES iOS IPA**.
+4. Wait for the workflow to complete.
+5. Download artifact `SHADOW-FILES-unsigned-IPA`.
+6. Extract it and sign the IPA with Sideloadly before installing it on an iPhone.
 
-```bash
-xcodebuild \
-  -project SHADOWFILES.xcodeproj \
-  -scheme SHADOWFILES \
-  -configuration Release \
-  -sdk iphoneos \
-  -derivedDataPath build/DerivedData \
-  CODE_SIGNING_ALLOWED=NO \
-  CODE_SIGNING_REQUIRED=NO \
-  CODE_SIGN_IDENTITY="" \
-  build
-```
+The workflow uses `macos-latest`, `xcodebuild`, `CODE_SIGNING_ALLOWED=NO`, and creates `Payload/SHADOWFILES.app` inside an IPA archive.
 
-An unsigned IPA is a package of the app, not an install-ready signed app. Sign it with Sideloadly/AltStore or another legitimate signing workflow before installing it on an iPhone. A free Apple ID signing profile may need periodic renewal.
+## Run the iOS app locally
 
-## GitHub Actions IPA build
+Open `SHADOWFILES.xcodeproj` on a Mac with Xcode 16 or later. Select the `SHADOWFILES` scheme and an iPhone simulator/device, then Build/Run. The app requires iOS 17 or later.
 
-The workflow `.github/workflows/ios-unsigned-ipa.yml` runs on GitHub-hosted `macos-latest` when code is pushed to `main` or `master`, and can also be started manually from the Actions tab.
+## Run the multiplayer server
 
-After the workflow succeeds:
-
-1. Open the repository on GitHub.
-2. Select **Actions**.
-3. Open **Build SHADOW FILES iOS IPA**.
-4. Open the completed run.
-5. Download the `SHADOW-FILES-unsigned-IPA` artifact.
-6. Extract the artifact and sign the IPA with Sideloadly before installing it.
-
-No paid Apple Developer account is required just to compile and package this unsigned IPA. App Store distribution and signing with a Developer certificate are separate.
-
-## Run the multiplayer backend
-
-In a terminal:
+Requirements: macOS or Linux, Swift 5.9+, internet access for Swift Package Manager dependency resolution.
 
 ```bash
 cd Backend
 swift run
 ```
 
-Default server endpoints:
+Default endpoints:
 
-- Health: `http://127.0.0.1:8080/health`
+- Health check: `http://127.0.0.1:8080/health`
 - WebSocket: `ws://127.0.0.1:8080/ws`
 
-To listen on another port:
+When testing on a physical iPhone on the same Wi-Fi network, set the app's server URL to the computer's LAN address, for example `ws://192.168.1.20:8080/ws` (replace the example IP with the computer's real LAN IP). Allow incoming connections in the computer firewall.
 
-```bash
-PORT=8080 HOST=0.0.0.0 swift run
-```
+For internet multiplayer, deploy the backend to a public host and configure `wss://` behind TLS. Do not expose the development server publicly without adding account authentication, TLS termination, rate limiting, abuse monitoring, and persistent storage.
 
-When connecting from a physical iPhone on the same Wi-Fi network, replace `127.0.0.1` in the app with the computer's LAN IPv4 address, for example `ws://192.168.1.10:8080/ws`. The example IP is only illustrative; use the actual address of the computer running the server. Allow incoming connections through the computer's firewall.
+## Windows: upload this folder to GitHub
 
-For connections over the public internet, deploy the backend to a host and configure TLS/WSS (`wss://`). Do not expose the development server directly to the internet without authentication, TLS, rate limiting, and hardened validation.
+1. Extract the ZIP.
+2. Install Git for Windows if `git` is unavailable.
+3. Run `upload-to-github.bat` from the extracted folder.
+4. Authenticate with GitHub when Git requests it.
+5. Open the Actions tab to monitor the build.
 
-## Backend tests
-
-```bash
-cd Backend
-swift test
-```
-
-## Repository upload
-
-Extract the ZIP, then double-click `upload-to-github.bat` on Windows. It clones the target repository, copies the project files into the clone, commits the changes, and pushes the current branch. Git for Windows and GitHub authentication are required. Review any existing repository files that may be overwritten before running it.
-
-## Current playable features
-
-- Native iOS app shell and dark detective menu
-- Procedurally generated compact 3D Greywood block
-- Third-person camera and simple on-screen movement control
-- Search-area interaction and three evidence entries
-- Case notebook and local JSON persistence
-- WebSocket connection screen, room creation/join message flow, and server message relay
-- GitHub Actions unsigned IPA packaging workflow
+The upload script clones the existing repository before copying the project so the current `main` history is preserved. It does not delete `.git` or build the project locally.

@@ -2,7 +2,7 @@ import SwiftUI
 
 @main
 struct ShadowFilesApp: App {
-    @StateObject private var game = GameViewModel()
+    @StateObject private var game = GameEngine()
 
     var body: some Scene {
         WindowGroup {
