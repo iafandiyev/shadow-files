@@ -22,11 +22,9 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      # 1. Download source code
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Select Xcode
       - name: Select Xcode 16.4
         shell: bash
         run: |
@@ -35,39 +33,32 @@ jobs:
           XCODE_PATH="/Applications/Xcode_16.4.app/Contents/Developer"
 
           if [ ! -d "$XCODE_PATH" ]; then
-            echo "ERROR: Xcode 16.4 not found."
-            echo "Installed Xcode versions:"
+            echo "Xcode 16.4 not found"
             ls -d /Applications/Xcode*.app || true
             exit 1
           fi
 
           sudo xcode-select -s "$XCODE_PATH"
 
-          echo "Selected Xcode:"
           xcodebuild -version
-
-          echo "Developer directory:"
           xcode-select -p
 
-      # 3. Verify SDK
       - name: Verify iOS SDK
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "Available SDKs:"
           xcodebuild -showsdks
 
           SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
           SDK_VERSION=$(xcrun --sdk iphoneos --show-sdk-version)
 
-          echo "iOS SDK path: $SDK_PATH"
-          echo "iOS SDK version: $SDK_VERSION"
+          echo "SDK PATH: $SDK_PATH"
+          echo "SDK VERSION: $SDK_VERSION"
 
           test -d "$SDK_PATH"
 
-      # 4. Verify project
-      - name: Check project and scheme
+      - name: Check project files
         shell: bash
         run: |
           set -euo pipefail
@@ -75,14 +66,16 @@ jobs:
           test -d SHADOWFILES.xcodeproj
           test -f SHADOWFILES/Info.plist
 
-          echo "Project files:"
+          echo "Checking project file..."
+          plutil -lint SHADOWFILES.xcodeproj/project.pbxproj
+
+          echo "Source files:"
           find SHADOWFILES -type f
 
           echo "Available schemes:"
           xcodebuild -list -project SHADOWFILES.xcodeproj
 
-      # 5. Prepare folders
-      - name: Prepare build folders
+      - name: Prepare folders
         shell: bash
         run: |
           set -euo pipefail
@@ -91,10 +84,7 @@ jobs:
           mkdir -p build/crash-reports
           mkdir -p dist/Payload
 
-          echo "Build folders ready."
-
-      # 6. Collect system information
-      - name: Collect build environment
+      - name: Collect environment information
         shell: bash
         run: |
           set -euo pipefail
@@ -103,66 +93,59 @@ jobs:
             echo "=== SYSTEM ==="
             sw_vers
 
-            echo ""
             echo "=== XCODE ==="
             xcodebuild -version
 
-            echo ""
             echo "=== SWIFT ==="
             swift --version
 
-            echo ""
             echo "=== SDK ==="
             xcrun --sdk iphoneos --show-sdk-version
 
-            echo ""
             echo "=== ARCHITECTURE ==="
             uname -m
-          } | tee build/logs/environment.log
+          } 2>&1 | tee build/logs/environment.log
 
-      # 7. Check build settings
-      - name: Check Xcode build settings
+      - name: Test Debug build settings
         shell: bash
         run: |
-          set -uo pipefail
-
           set +e
+
+          echo "Testing Debug configuration..."
 
           xcodebuild \
             -project SHADOWFILES.xcodeproj \
             -scheme SHADOWFILES \
-            -configuration Release \
-            -destination 'generic/platform=iOS' \
+            -configuration Debug \
             -sdk iphoneos \
             -showBuildSettings \
-            > build/logs/build-settings.log 2>&1
+            > build/logs/debug-settings.log 2>&1
 
           STATUS=$?
 
-          set -e
+          echo "DEBUG SETTINGS EXIT CODE: $STATUS"
 
           if [ "$STATUS" -ne 0 ]; then
-            echo "Build settings check failed: $STATUS"
-            cat build/logs/build-settings.log
+            echo "Debug settings test failed"
+            cat build/logs/debug-settings.log
             exit "$STATUS"
           fi
 
-          echo "Build settings verified."
+          echo "DEBUG SETTINGS SUCCESS"
 
-      # 8. Build application
       - name: Build unsigned iOS app
         shell: bash
         run: |
           set -uo pipefail
 
-          echo "Starting SHADOW FILES build..."
+          echo "Starting iOS build..."
 
           set +e
 
           xcodebuild \
             -project SHADOWFILES.xcodeproj \
             -scheme SHADOWFILES \
-            -configuration Release \
+            -configuration Debug \
             -destination 'generic/platform=iOS' \
             -sdk iphoneos \
             -derivedDataPath build/DerivedData \
@@ -180,9 +163,7 @@ jobs:
 
           set -e
 
-          echo "=================================="
-          echo "XCODE BUILD EXIT CODE: $BUILD_STATUS"
-          echo "=================================="
+          echo "BUILD EXIT CODE: $BUILD_STATUS"
 
           echo "Collecting crash reports..."
 
@@ -193,7 +174,7 @@ jobs:
             if [ -d "$DIR" ]; then
               find "$DIR" \
                 -type f \
-                -mmin -90 \
+                -mmin -120 \
                 \( \
                   -iname '*xcodebuild*' \
                   -o -iname '*swift*' \
@@ -205,36 +186,31 @@ jobs:
             fi
           done
 
-          echo "Crash report directory:"
           ls -lah build/crash-reports || true
 
           if [ "$BUILD_STATUS" -ne 0 ]; then
-            echo "ERROR: Xcode build failed."
+            echo "iOS build failed"
             exit "$BUILD_STATUS"
           fi
 
-          echo "XCODE BUILD SUCCEEDED!"
+          echo "iOS build succeeded"
 
-      # 9. Verify app
       - name: Verify generated app
         shell: bash
         run: |
           set -euo pipefail
 
-          APP_PATH="build/DerivedData/Build/Products/Release-iphoneos/SHADOWFILES.app"
+          APP_PATH="build/DerivedData/Build/Products/Debug-iphoneos/SHADOWFILES.app"
 
           if [ ! -d "$APP_PATH" ]; then
-            echo "ERROR: SHADOWFILES.app not found."
+            echo "SHADOWFILES.app not found"
+            find build/DerivedData -name "*.app" || true
             exit 1
           fi
 
-          if [ ! -f "$APP_PATH/Info.plist" ]; then
-            echo "ERROR: App Info.plist missing."
-            exit 1
-          fi
+          test -f "$APP_PATH/Info.plist"
 
-          echo "APP GENERATED SUCCESSFULLY"
-
+          echo "App bundle:"
           /usr/libexec/PlistBuddy \
             -c "Print :CFBundleIdentifier" \
             "$APP_PATH/Info.plist"
@@ -243,15 +219,12 @@ jobs:
             -c "Print :CFBundleVersion" \
             "$APP_PATH/Info.plist"
 
-          ls -lah "$APP_PATH"
-
-      # 10. Create IPA
       - name: Package unsigned IPA
         shell: bash
         run: |
           set -euo pipefail
 
-          APP_PATH="build/DerivedData/Build/Products/Release-iphoneos/SHADOWFILES.app"
+          APP_PATH="build/DerivedData/Build/Products/Debug-iphoneos/SHADOWFILES.app"
 
           test -d "$APP_PATH"
 
@@ -266,13 +239,10 @@ jobs:
 
           test -s SHADOW-FILES-unsigned.ipa
 
-          echo "IPA CREATED SUCCESSFULLY"
+          /usr/bin/unzip -t SHADOW-FILES-unsigned.ipa
 
           ls -lh SHADOW-FILES-unsigned.ipa
 
-          /usr/bin/unzip -t SHADOW-FILES-unsigned.ipa
-
-      # 11. Upload IPA
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
@@ -281,8 +251,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      # 12. Always upload diagnostics
-      - name: Upload build diagnostics
+      - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
